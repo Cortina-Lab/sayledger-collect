@@ -19,7 +19,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
-from . import agent, collect, meta_client, paypal_client, stock
+from . import agent, collect, collect_agent, meta_client, paypal_client, stock
 from .books import Books, default_data_dir
 from .ledger import Ledger, LedgerError
 from .schemas import (
@@ -163,9 +163,9 @@ def _propose(text: str, ledger: Ledger) -> ProposalsOut:
 # Biasing helps with short shop words the model otherwise mishears (tel / til).
 SHOP_WORDS = {
     "INR": ["udhaar", "wapas", "diye", "liya", "rupaye", "tel", "chawal", "cheeni", "aata", "dal", "doodh", "sabun"],
-    "USD": ["tab", "credit", "paid back", "bucks", "dollars", "gallon"],
+    "USD": ["tab", "credit", "paid back", "bucks", "dollars", "gallon", "payment link", "PayPal", "reminder", "remind"],
 }
-LANGUAGES = {"INR": ["Hindi", "English"]}
+LANGUAGES = {"INR": ["Hindi", "English"], "USD": ["English", "Spanish"]}
 
 
 async def _transcribe(audio: UploadFile, ledger: Ledger | None = None) -> str:
@@ -488,3 +488,44 @@ async def paypal_webhook(request: Request) -> dict:
     except paypal_client.PayPalError as e:
         log.warning("paypal re-fetch failed: %s", e)
     return {"ok": True}
+
+
+class PlanIn(BaseModel):
+    text: str = Field(min_length=1, max_length=1000)
+
+
+class SendCard(BaseModel):
+    party_id: int
+    amount_minor: int | None = Field(default=None, gt=0)
+    language: str = Field(default="English", max_length=40)
+
+
+class SendIn(BaseModel):
+    cards: list[SendCard] = Field(min_length=1, max_length=collect_agent.MAX_ACTIONS)
+
+
+@app.post("/collect/plan")
+def collect_plan(body: PlanIn, book: Book = Depends(ai_quota)) -> dict:
+    return {"heard": body.text, **collect_agent.plan(body.text, book.ledger)}
+
+
+@app.post("/collect/plan-voice")
+async def collect_plan_voice(audio: UploadFile = File(...), book: Book = Depends(ai_quota)) -> dict:
+    heard = await _transcribe(audio, book.ledger)
+    return {"heard": heard, **collect_agent.plan(heard, book.ledger)}
+
+
+@app.post("/collect/send")
+def collect_send(body: SendIn, book: Book = Depends(ai_quota)) -> dict:
+    """The shopkeeper confirmed these cards: create PayPal links and the messages to share."""
+    lg, col = book.ledger, collect.Collect(book.ledger)
+    shop = lg.get_shop()["name"]
+    out = []
+    for card in body.cards:
+        req = col.create_request(paypal(), registry, book.id, card.party_id, card.amount_minor)
+        party = lg.get_party(card.party_id)["name"]
+        lang = card.language if card.language in collect_agent.LANGS else "English"
+        text, used_model = collect_agent.link_message(party, shop, req["amount_minor"], req["currency"], lang,
+                                                      req["link_url"], req["amount_minor"] < lg.party_balance(card.party_id))
+        out.append({"request": req, "party": party, "language": lang, "message": text, "used_model": used_model})
+    return {"sent": out}
