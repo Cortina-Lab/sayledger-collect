@@ -19,8 +19,8 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 KINDS = ("credit_given", "payment_received", "cash_sale", "expense")
-SOURCES = ("voice", "ledger_photo", "manual")
-SCHEMA_VERSION = 2
+SOURCES = ("voice", "ledger_photo", "manual", "paypal")
+SCHEMA_VERSION = 3
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS shop (
@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS entry (
     amount_minor INTEGER NOT NULL CHECK (amount_minor > 0),
     currency     TEXT    NOT NULL,
     note         TEXT    NOT NULL DEFAULT '',
-    source       TEXT    NOT NULL CHECK (source IN ('voice','ledger_photo','manual')),
+    source       TEXT    NOT NULL CHECK (source IN ('voice','ledger_photo','manual','paypal')),
     raw_text     TEXT    NOT NULL DEFAULT '',
     created_at   TEXT    NOT NULL,
     updated_at   TEXT,
@@ -104,6 +104,19 @@ class Ledger:
             for col in ("updated_at", "voided_at", "void_reason"):
                 if col not in cols:
                     con.execute(f"ALTER TABLE entry ADD COLUMN {col} TEXT")
+        # v3: allow source 'paypal' (SQLite can't alter a CHECK, so rebuild the table once).
+        sql = con.execute("SELECT sql FROM sqlite_master WHERE type='table' AND name='entry'").fetchone()["sql"]
+        if "'paypal'" not in sql:
+            con.execute("PRAGMA foreign_keys = OFF")
+            with con:
+                con.execute("ALTER TABLE entry RENAME TO entry_v2")
+                con.executescript(SCHEMA.split("CREATE TABLE IF NOT EXISTS audit")[0].split(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS party_name_ci ON party (name COLLATE NOCASE);")[1])
+                cols_v2 = ", ".join(r["name"] for r in con.execute("PRAGMA table_info(entry_v2)"))
+                con.execute(f"INSERT INTO entry ({cols_v2}) SELECT {cols_v2} FROM entry_v2")
+                con.execute("DROP TABLE entry_v2")
+            con.execute("PRAGMA foreign_keys = ON")
+        with con:
             con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
 
     def _audit(self, con, action: str, entry_id=None, party_id=None, before=None, after=None) -> None:

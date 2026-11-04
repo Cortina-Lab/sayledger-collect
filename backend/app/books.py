@@ -80,6 +80,15 @@ class Books:
                 self._cache[book_id] = Ledger(self.path(book_id))
             return book_id, self._cache[book_id]
 
+    def open_id(self, book_id: str) -> Ledger | None:
+        """Open a book by id (server-side only, e.g. a PayPal webhook for one of its invoices)."""
+        if not book_id or not self.path(book_id).exists():
+            return None
+        with self._lock:
+            if book_id not in self._cache:
+                self._cache[book_id] = Ledger(self.path(book_id))
+            return self._cache[book_id]
+
     def restore(self, book_id: str, upload: Path) -> Ledger:
         """Replace a book with a validated backup file (old copy kept as .bak)."""
         Ledger.validate_backup(upload)

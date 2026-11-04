@@ -108,6 +108,12 @@ class PayPal:
     def get_invoice(self, invoice_id: str) -> dict:
         return self._call("GET", f"/v2/invoicing/invoices/{invoice_id}")
 
+    def record_payment(self, invoice_id: str, amount_minor: int, currency: str,
+                       method: str = "CASH", note: str = "") -> dict:
+        """Record a payment made outside PayPal (cash at the counter) so the invoice stays in step."""
+        return self._call("POST", f"/v2/invoicing/invoices/{invoice_id}/payments",
+                          {"method": method, "note": note[:150], "amount": money(amount_minor, currency)})
+
     def cancel_invoice(self, invoice_id: str) -> None:
         self._call("POST", f"/v2/invoicing/invoices/{invoice_id}/cancel",
                    {"send_to_recipient": False, "send_to_invoicer": False})

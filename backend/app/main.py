@@ -19,7 +19,7 @@ from fastapi import Depends, FastAPI, File, Form, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse, Response
 from starlette.background import BackgroundTask
 
-from . import agent, meta_client, stock
+from . import agent, collect, meta_client, paypal_client, stock
 from .books import Books, default_data_dir
 from .ledger import Ledger, LedgerError
 from .schemas import (
@@ -59,6 +59,11 @@ def _agent_error(_: Request, e: agent.AgentError):
 
 @app.exception_handler(stock.StockError)
 def _stock_error(_: Request, e: stock.StockError):
+    return JSONResponse(status_code=400, content={"detail": str(e)})
+
+
+@app.exception_handler(collect.CollectError)
+def _collect_error(_: Request, e: collect.CollectError):
     return JSONResponse(status_code=400, content={"detail": str(e)})
 
 
@@ -382,3 +387,104 @@ async def stock_count(image: UploadFile = File(...), item: str = Form(...), book
         raise HTTPException(400, "Please send a JPEG, PNG or WebP photo")
     data = await _read_limited(image, MAX_IMAGE_BYTES, "Photo")
     return stock.count(data, item)
+
+
+# ── SayLedger Collect (PayPal sandbox) ────────────────────────────────
+from pydantic import BaseModel, Field  # noqa: E402
+
+registry = collect.Registry(default_data_dir())
+_paypal: paypal_client.PayPal | None = None
+
+
+def paypal() -> paypal_client.PayPal:
+    global _paypal
+    if _paypal is None:
+        try:
+            _paypal = paypal_client.PayPal()
+        except paypal_client.PayPalError as e:
+            raise HTTPException(503, str(e)) from e
+    return _paypal
+
+
+class CollectRequestIn(BaseModel):
+    party_id: int
+    amount_minor: int | None = Field(default=None, gt=0)
+    note: str = Field(default="", max_length=500)
+
+
+class InboxConfirmIn(BaseModel):
+    party_id: int | None = None
+
+
+@app.get("/collect/status")
+def collect_status(book: Book = Depends(current_book)) -> dict:
+    cur = book.ledger.currency()
+    import os
+    return {"currency": cur, "links_available": cur in collect.SUPPORTED,
+            "paypal_configured": bool(os.getenv("PAYPAL_CLIENT_ID") and os.getenv("PAYPAL_CLIENT_SECRET")),
+            "environment": os.getenv("PAYPAL_ENV", "sandbox"), "supported": list(collect.SUPPORTED)}
+
+
+@app.post("/collect/request")
+def collect_request(body: CollectRequestIn, book: Book = Depends(current_book)) -> dict:
+    return collect.Collect(book.ledger).create_request(paypal(), registry, book.id, body.party_id,
+                                                       body.amount_minor, body.note)
+
+
+@app.get("/collect/requests")
+def collect_requests(party_id: int | None = None, book: Book = Depends(current_book)) -> list[dict]:
+    return collect.Collect(book.ledger).requests(party_id)
+
+
+@app.post("/collect/sync")
+def collect_sync(book: Book = Depends(current_book)) -> dict:
+    new = collect.Collect(book.ledger).sync(paypal())
+    return {"new_items": len(new)}
+
+
+@app.get("/inbox")
+def inbox(status: str = "open", book: Book = Depends(current_book)) -> list[dict]:
+    if status not in ("open", "confirmed", "dismissed"):
+        raise HTTPException(400, "Unknown status")
+    return collect.Collect(book.ledger).inbox(status)
+
+
+@app.post("/inbox/{item_id}/confirm")
+def inbox_confirm(item_id: int, body: InboxConfirmIn | None = None, book: Book = Depends(current_book)) -> dict:
+    return collect.Collect(book.ledger).confirm(item_id, body.party_id if body else None)
+
+
+@app.post("/inbox/{item_id}/dismiss")
+def inbox_dismiss(item_id: int, book: Book = Depends(current_book)) -> dict:
+    return collect.Collect(book.ledger).dismiss(item_id)
+
+
+@app.post("/paypal/webhook")
+async def paypal_webhook(request: Request) -> dict:
+    """PayPal calls this. Always 200 quickly (PayPal retries on errors); act only on verified events."""
+    import os
+    raw = await request.body()
+    try:
+        ev = collect.parse_event(raw)
+    except collect.CollectError:
+        return {"ok": False}
+    verified = False
+    try:
+        verified = paypal().verify_webhook(dict(request.headers), raw, os.getenv("PAYPAL_WEBHOOK_ID", ""))
+    except (paypal_client.PayPalError, HTTPException):
+        verified = False
+    first = registry.record_event(ev["event_id"], ev["type"], ev["invoice_id"], verified, raw.decode("utf-8", "replace"))
+    if not (first and verified and ev["type"] in collect.HANDLED_EVENTS and ev["invoice_id"]):
+        log.info("paypal webhook %s ignored (first=%s verified=%s)", ev["type"], first, verified)
+        return {"ok": True}
+    book_id = registry.book_for(ev["invoice_id"])
+    ledger = books.open_id(book_id) if book_id else None
+    if ledger is None:
+        return {"ok": True}
+    try:
+        invoice = paypal().get_invoice(ev["invoice_id"])  # re-fetch: never trust payload amounts
+        new = collect.Collect(ledger).reconcile(invoice)
+        log.info("paypal webhook %s -> %d inbox item(s)", ev["type"], len(new))
+    except paypal_client.PayPalError as e:
+        log.warning("paypal re-fetch failed: %s", e)
+    return {"ok": True}
