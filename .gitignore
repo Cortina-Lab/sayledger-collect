@@ -40,3 +40,8 @@ backend/data/
 backend/tests/fixtures/*.wav
 backend/data/
 *.iml
+
+# Editor backups (may contain secrets)
+*~
+.env.*
+!.env.example
