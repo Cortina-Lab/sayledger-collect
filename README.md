@@ -1,128 +1,133 @@
 <p align="center"><img src="docs/logo.png" alt="SayLedger" width="360"></p>
 
-# SayLedger by Cortina
+# SayLedger Collect by Cortina
 
-[![CI](https://github.com/Cortina-Lab/sayledger/actions/workflows/ci.yml/badge.svg)](https://github.com/Cortina-Lab/sayledger/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/Cortina-Lab/sayledger?include_prereleases)](https://github.com/Cortina-Lab/sayledger/releases)
-![Meta models](https://img.shields.io/badge/AI-Muse%20Spark%20·%20Voice%20Transcribe%20·%20SAM%203.1-0866FF)
+![PayPal](https://img.shields.io/badge/PayPal-Invoicing%20v2%20·%20Webhooks%20(sandbox)-003087)
+![AI](https://img.shields.io/badge/AI-Muse%20Spark%20agent%20·%20Voice%20Transcribe-0866FF)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 
-**Say it. It's in the book.**
+**Say it. Send it. Get paid.**
 
-Hundreds of millions of small shops still keep customer credit ("udhaar", "tab", "fiado") in a
-paper notebook. Typing into an app while a customer waits at the counter is too slow, so they
-don't — and money is forgotten.
+Around 150,000 corner stores, bodegas, delis and food trucks in the US — and millions of small shops
+worldwide — still run customer *tabs* in a paper notebook. Writing down the credit is only half the
+job. The other half is getting paid: noticing who is overdue, asking politely, and then remembering
+to cross it off when the money arrives somewhere else.
 
-SayLedger is a **voice + vision credit book** for small shops anywhere. The shopkeeper *says*
-"Ramesh took 3 kg rice, 450 on credit" in their own language, checks a card, taps **Confirm** —
-and it's in the book. They can photograph an old handwritten ledger page, ask their book
-questions, see who owes what and for how long, send polite reminders, and share statements as PDF.
+**SayLedger Collect closes that loop.** The shopkeeper asks *"Who should I chase today?"* (by voice,
+in English or Spanish). An AI agent reads the credit book and proposes reminders. Each reminder
+carries a **PayPal payment link for the exact amount owed**. When the customer pays — in full or
+in part — PayPal tells our backend, and a **"Maria paid $200 — still owes $304"** card appears in the
+shopkeeper's **Payment inbox**. One tap on **Confirm** and the book is up to date.
 
-Built for the **Meta Global AI Developer Hackathon** (Startup track, theme: *Build for Your World*).
+Built for the **PayPal AI Hackathon** (Nov 2026) on top of SayLedger, our voice credit book
+(see [What is new for this hackathon](#what-is-new-for-this-hackathon)).
 
 ---
 
 ## Screenshots
 
-| Home | Collections | Customer | Ask your book |
-|---|---|---|---|
-| <img src="docs/screenshots/01_home.jpg" width="200"> | <img src="docs/screenshots/02_collections.jpg" width="200"> | <img src="docs/screenshots/03_customer.jpg" width="200"> | <img src="docs/screenshots/04_ask.jpg" width="200"> |
+| Home | Agent plan | Links ready | Payment inbox | Customer |
+|---|---|---|---|---|
+| <img src="docs/screenshots/collect/10_home_get_paid.jpg" width="170"> | <img src="docs/screenshots/collect/11_agent_plan.jpg" width="170"> | <img src="docs/screenshots/collect/12_links_ready.jpg" width="170"> | <img src="docs/screenshots/collect/13_inbox_card.jpg" width="170"> | <img src="docs/screenshots/collect/14_customer_links.jpg" width="170"> |
 
-| Reports | Day book | Count stock (SAM 3.1) |
+<sub>"Harbor Market" with invented customers and amounts. PayPal **sandbox** — no real money moves.</sub>
+
+---
+
+## The loop
+
+```
+ "Who should I chase today?"                                         customer opens the link
+          │ voice / text                                             and pays (PayPal sandbox)
+          ▼                                                                    │
+ ┌─────────────────┐  read-only tools   ┌──────────┐                           ▼
+ │ Collect agent   │ ─────────────────▶ │ ledger   │                ┌──────────────────────┐
+ │ (Muse Spark)    │ ◀───────────────── │ (SQLite) │                │ PayPal Invoicing v2  │
+ └────────┬────────┘   balances, ages   └──────────┘                └──────────┬───────────┘
+          │ proposal cards (customer, amount FROM THE BOOK, language, why)     │ webhook
+          ▼                                                                    │ INVOICING.INVOICE.PAID
+ shopkeeper ticks cards ──▶ backend creates invoices ──▶ payer links           ▼
+          │                  (paypal_client.py)          in AI-written    verify signature (PayPal
+          ▼                                              messages         postback) → re-fetch invoice
+ share sheet (WhatsApp / SMS) ──────────────────────────────────────▶    → inbox card (proposal only)
+                                                                               │
+                                              shopkeeper taps Confirm  ◀───────┘
+                                              → payment entry, oldest credit cleared first
+```
+
+## How PayPal is used
+
+All PayPal calls live in [`backend/app/paypal_client.py`](backend/app/paypal_client.py) (sandbox,
+OAuth2 client credentials). Facts were checked against developer.paypal.com and the sandbox — see
+[`docs/PAYPAL_NOTES.md`](docs/PAYPAL_NOTES.md).
+
+| Step | PayPal API | Our rule |
 |---|---|---|
-| <img src="docs/screenshots/05_reports.jpg" width="200"> | <img src="docs/screenshots/06_daybook.jpg" width="200"> | <img src="docs/screenshots/07_stock.jpg" width="200"> |
+| Payment link | `POST /v2/invoicing/invoices` → `POST …/{id}/send` (`send_to_recipient: false`) → **payer-view link** | Amount = the customer's balance from the ledger, or a smaller amount the shopkeeper typed. Never more than owed. Partial payments allowed (`configuration.partial_payment`) |
+| Customer pays | PayPal hosted invoice page | The customer needs no app and we never see card data |
+| Payment arrives | Webhook `INVOICING.INVOICE.PAID` / `REFUNDED` / `CANCELLED` → `POST /paypal/webhook` | Signature verified with `POST /v1/notifications/verify-webhook-signature` (raw body, never re-serialised). Unverified or duplicate events (same event id) never create inbox items |
+| Amount | `GET /v2/invoicing/invoices/{id}` | We **re-fetch the invoice** and use PayPal's `paid_amount` — never amounts from the webhook body or from AI text |
+| No webhook? | Same `GET`, from the **Check PayPal now** button (`POST /collect/sync`) | Fallback for local development and missed deliveries |
+| One live link per customer | `POST …/{id}/cancel` | A new link cancels the customer's unpaid one (after a final re-check). PayPal refuses to cancel a part-paid invoice (422), so a part-paid link whose remainder matches is **reused** instead |
+| Cash at the counter | `POST …/{id}/payments` (record payment) | Keeps the invoice in step when the customer pays in cash |
 
-<sub>Screens show the invented "Demo Shop" data. The app also has a dark theme and USD / any-currency books.</sub>
+## Where the AI is
 
----
-
-## How Meta's models are used
-
-Every AI step runs on Meta models through the **Meta Model API** (`https://api.meta.ai/v1`).
-All maths is done in Python from the database — **the model never calculates a total and never
-writes to the book**.
-
-| Feature | Meta model | What the model does | What our code does |
+| Job | Model | The model does | Our code does |
 |---|---|---|---|
-| Voice entry | `muse-voice-transcribe-1.0` → `muse-spark-1.3` | Speech → text; text → proposed entries (JSON) | Validates JSON, converts amounts to integer minor units, matches customer names, shows editable cards. Saves only on **Confirm** |
-| Typed entry | `muse-spark-1.3` | Same extraction from typed text (any language) | Same validation |
-| Scan an old ledger page | `muse-spark-1.3` (image input) | Reads handwritten rows; counts rows it can't read as *unreadable* instead of guessing | Low-confidence fields highlighted; page dates kept; nothing saved until reviewed |
-| Ask your book | `muse-spark-1.3` | Maps the question to **one intent** from a fixed list (or "none") | Computes every number from the ledger; answer built from a template |
-| Payment reminder | `muse-spark-1.3` | Writes a polite message in the chosen language with an `{AMOUNT}` placeholder | Inserts the exact balance; falls back to a fixed template if the model adds any number |
-| Count stock | `sam-3.1` (text prompt) | Segments every instance of an item ("bottle") in a shelf photo | Filters by confidence, removes duplicates, counts, draws numbered boxes; labelled *approximate* |
+| **Collect agent** — "Who should I chase today?", "Send Maria a payment link", "¿A quién le cobro hoy?" | `muse-spark-1.3` in a tool loop (max 6 steps) | Picks read-only tools (`list_owing`, `customer`, `find_customer`), ranks who to chase and says why | Runs the tools on the ledger, **validates every card**: customer must exist, must owe money, amount taken from the ledger (a smaller amount only if the shopkeeper asked), max 5 cards, language from a fixed list. Unknown customers are dropped and shown as "Skipped" |
+| Voice command | `muse-voice-transcribe-1.0` | Speech → text | Same agent |
+| Reminder text | `muse-spark-1.3` | A polite message in the customer's language with an `{AMOUNT}` placeholder | Inserts the exact amount and the PayPal link; falls back to a fixed template if the model adds a number |
+| (base app) entries, ledger photos, questions, stock count | Muse Spark, Voice Transcribe, SAM 3.1 | see [Base app](#the-base-app-sayledger) | |
 
-Model calls are rate-limited per book, and `muse-spark-1.3` is called with an explicit
-`reasoning_effort` because its `max_tokens` budget includes reasoning tokens.
+**The AI never moves money and never writes to the book.** It proposes; the shopkeeper ticks cards
+before links are created, shares each message themselves, and confirms each payment.
 
----
+## The Payment inbox
 
-## Features
+| PayPal reports | Card | Confirm does |
+|---|---|---|
+| Full payment | "Maria paid $504 — clears the balance" | Adds a *payment received* entry (source: PayPal) |
+| Part payment | "Maria paid $200 — part payment, still owes $304" | Same; payments clear the oldest credit first, so ageing updates |
+| More than owed | "… $20 more than owed — kept as advance" | Balance goes negative = advance |
+| Refund | "PayPal refunded $15 to Maria" | Adds the money back to what she owes |
+| Link cancelled | "Maria's payment link was cancelled" | Nothing — dismiss |
+| Wrong person | **Change** → pick the customer | Saves against the chosen customer |
 
-- **Hold to speak** (16 kHz mono WAV) or **type** an entry — several entries in one sentence.
-- **Confirm cards** — "Heard: …", every field editable, doubtful fields highlighted, *New customer* chip.
-- **Scan ledger page** — digitise an old notebook page row by row, honestly reporting unreadable rows.
-- **Ask your book** — by voice or text; answers show the numbers they came from.
-- **Collections** — outstanding money by age (0–30 / 31–60 / 61–90 / 90+ days, payments clear the
-  oldest credit first) and who could use a friendly reminder.
-- **Reminders** in 8 selectable languages (English, Hindi and Spanish tested) — the shopkeeper edits and sends them via the share sheet; the app never sends anything itself.
-- **Customer statement PDF** (opening balance, running balance, closing) — share or print.
-- **Reports** for any period — money in / out, net cash, per-customer movement — PDF, print, CSV.
-- **Day book** with period and type filters.
-- **Edit and cancel** entries — nothing is silently deleted: cancelled entries stay visible and leave
-  every total; every add / edit / cancel is in the **Activity log**.
-- **Count stock** from a shelf photo.
-- **Backup / restore / erase** the whole book.
-- **Universal**: India (₹, lakh grouping), USA ($), or any ISO 4217 currency. Speak or type in any
-  language; the app UI is English.
-
----
-
-## Architecture
-
-```
-Flutter app (Android)  ──audio / photo / text──▶  FastAPI backend (Python)
-   cards, lists, PDFs  ◀───────── JSON ─────────    ├─ meta_client.py  only place that calls Meta
-                                                    ├─ agent.py        prompts + strict validation
-                                                    ├─ ledger.py       SQLite, ALL maths, audit log
-                                                    ├─ stock.py        SAM 3.1 boxes → count + overlay
-                                                    └─ books.py        one SQLite file per install
-```
-
-- **Privacy by design**: each install gets its own book (a separate SQLite file) opened with a
-  random bearer token; only a SHA-256 of the token is stored. No login, no ads, no analytics.
-  Logs contain method, path, status and time only — no bodies, tokens or customer data.
-- **Money** is stored as integer minor units (paise / cents) plus the shop's currency. Never floats.
-- The phone never holds the Meta API key.
+Every card shows what PayPal reported (invoice id, PayPal status, time) next to the proposal.
 
 ---
 
 ## Run it
 
-### Try it without setup
-Install `SayLedger-1.0.0.apk` from the [v1.0.0 release](https://github.com/Cortina-Lab/sayledger/releases/tag/v1.0.0).
-It talks to our hosted demo backend at `https://cortinainfinity.com/sayledger` (the same code as
-`backend/`), so no laptop or key is needed. Please use invented names and amounts only.
-
-### Backend
+### Backend (FastAPI)
 ```bash
 cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
-cp .env.example .env          # put your Meta Model API key in META_API_KEY
-.venv/bin/uvicorn app.main:app --port 8077
-.venv/bin/python -m pytest -q # 42 tests, no network needed (also run by CI on every push)
+cp .env.example .env   # META_API_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET (sandbox), PAYPAL_WEBHOOK_ID
+.venv/bin/uvicorn app.main:app --port 8078
+.venv/bin/python -m pytest -q   # 61 tests, no network (fake PayPal + fake model)
 ```
-Optional: `scripts/phase2_check.py` makes one real call to each Meta model;
-`scripts/seed_demo.py data/books/<id>.db` fills a book with invented demo data.
+Sandbox keys: developer.paypal.com → Apps & Credentials → **Sandbox** → create an app. For webhooks the
+backend needs a public HTTPS URL; add a webhook for `INVOICING.INVOICE.*` pointing at
+`https://<your-host>/paypal/webhook` and put its id in `PAYPAL_WEBHOOK_ID`. Without a webhook,
+use **Check PayPal now** in the Payment inbox.
 
-### App
+Demo data: create a USD book in the app, then
+`.venv/bin/python -m scripts.seed_demo data/books/<id>.db --currency USD` (invented customers).
+
+### App (Flutter, Android)
 ```bash
 cd app
-adb reverse tcp:8077 tcp:8077   # phone on USB talks to the laptop backend
-flutter run                     # or: flutter build apk
+adb reverse tcp:8078 tcp:8078
+flutter run
 ```
-First launch asks for a shop name and region and creates a private book. The app uses the hosted
-demo backend by default; tap **Server** on the first screen to use your own
-(for example `http://127.0.0.1:8077` with the `adb reverse` line above).
+On the first screen tap **Server** → `http://127.0.0.1:8078`, choose region **USA**. PayPal features
+(Get paid, Payment inbox, link toggle) appear for USD / EUR / GBP / CAD / AUD books when the server has
+PayPal keys. **The phone never holds a PayPal or Meta secret.**
+
+To pay a link as a customer, open it in a browser and log in with a sandbox **Personal** account
+(developer.paypal.com → Sandbox accounts).
 
 ---
 
@@ -130,35 +135,46 @@ demo backend by default; tap **Server** on the first screen to use your own
 
 | | Status |
 |---|---|
-| Typed entries — English, Hinglish, Hindi (Devanagari), US English (USD) | ✅ tested with the live model |
-| Ask — English, Hinglish, Hindi; off-topic questions refused | ✅ tested |
-| Reminders — English, Hindi, Spanish; amount always exact | ✅ tested |
-| Ledger page — printed-style handwriting with one blurred row (blurred row reported as unreadable) | ✅ tested; real handwriting varies |
-| Stock count — synthetic shelf (7 bottles, 4 boxes) | ✅ counted correctly; real shelves are approximate |
-| Voice entry with real speech — Hinglish ("Ramesh ne do kilo chawal liye, 180 udhaar") → transcribed in Devanagari → card *Ramesh · credit · ₹180 · 2 kg rice* | ✅ tested (laptop mic, 16 kHz WAV) |
-| Other languages | *should* work (the models are multilingual) but are **not yet tested** |
+| Invoice create + send → payer link (USD, sandbox) | ✅ live sandbox |
+| Agent "Who should I chase today?" → 3 cards with reasons → 3 real sandbox links + AI messages | ✅ live (emulator, Nov 6) |
+| Part payment $200 of $504 → Check PayPal now → inbox card → Confirm → balance $304, ageing updated | ✅ live sandbox (payment recorded through the record-payment API) |
+| New link for a part-paid customer reuses the open link and asks for the remainder | ✅ live sandbox |
+| Spanish reminder message; agent commands in English and Spanish; off-topic refusal | ✅ live model |
+| Webhook signature verification, duplicate events, unverified events ignored | ✅ unit tests; live delivery needs the public host |
+| A real sandbox buyer paying through the PayPal page | ⏳ to be shown in the demo video |
 
-**Demo data**: the "Demo Shop" in the video uses invented customers and amounts
-(`scripts/seed_demo.py`). No real customer data is in this repo.
+## What is new for this hackathon
 
----
+The PayPal submission period started Oct 1 2026. **SayLedger** (the voice credit book) was built
+Oct 26 – Nov 4 2026 for the Meta AI hackathon. **Everything PayPal and agentic was added for this
+hackathon (Nov 4 – Nov 12 2026)**, on branch `collect`:
 
-## What SayLedger is not
+- `backend/app/paypal_client.py` — Invoicing v2, webhook verification, cancel, record payment, QR
+- `backend/app/collect.py` — payment requests, verified + idempotent webhook intake, re-fetch
+  reconciliation, sync fallback, Payment inbox, confirm / change customer / dismiss, refunds, advances,
+  one live link per customer
+- `backend/app/collect_agent.py` — the Collect agent (tool loop, validated cards, link messages)
+- `ledger` — new entry source `paypal`, schema v3
+- App: **Get paid** screen, **Payment inbox**, **Add PayPal payment link** in reminders, link history
+  per customer, **Who to chase today**, inbox banner, Settings → PayPal status
+- 19 new tests
 
-A credit book, not accounting or tax software: no tax filing, invoices, credit scores or
-lending. Readings from voice and photos are approximate — **the shopkeeper confirms every entry**.
+## The base app (SayLedger)
 
-## Built during the hackathon
+Hold-to-speak entries in any language with confirm cards · scan an old handwritten ledger page ·
+ask your book questions · collections by age · reminders in 8 languages · customer statement PDF ·
+reports (PDF / CSV) · day book · edit / cancel with an activity log · stock count from a shelf photo
+(SAM 3.1) · backup / restore. Money is integer minor units; all maths in `ledger.py`; one private
+SQLite book per install opened with a random token.
 
-Everything in this repository was built during the hackathon (Oct 26 – Nov 4 2026).
-Our team's earlier shop app (Cortina AI Vyapar) is the experience behind the idea; none of its
-code, data or design is used here. Code was written with AI coding assistance (Claude); every AI
-feature inside the app runs on Meta models.
+## What this is not
 
-## Roadmap
+Not a payment processor, bank, lender, or accounting / tax software; no credit scores. PayPal does
+the payments; SayLedger keeps the book. This build uses the **PayPal sandbox only**. PayPal links are
+offered for USD, EUR, GBP, CAD and AUD books (PayPal India does not support domestic INR payments,
+so INR books keep reminders without a link).
 
-Real-time voice via streaming transcription · offline entry queue · cloud sync across devices ·
-WhatsApp deep links for reminders · on-device open-weights extraction (Muse Spark Open).
+Code was written with AI coding assistance (Claude). All demo names and amounts are invented.
 
 ---
 
