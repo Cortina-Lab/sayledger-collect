@@ -22,6 +22,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _busy = false;
   String _region = 'IN';
   int _entries = 0;
+  Map<String, dynamic>? _paypal;
 
   static const _regions = {'IN': ('India', 'INR'), 'US': ('USA', 'USD'), 'XX': ('Other', '')};
 
@@ -41,6 +42,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _name.text = s['name'] as String;
       _currency.text = s['currency'] as String;
       setState(() => (_region = _regionFor(_currency.text), _entries = (s['entries'] ?? 0) as int));
+    }).catchError((_) {});
+    Api.instance.collectStatus().then((st) {
+      if (mounted) setState(() => _paypal = st);
     }).catchError((_) {});
   }
 
@@ -170,6 +174,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
           TextField(controller: _server, decoration: const InputDecoration(labelText: 'Server')),
           const SizedBox(height: 16),
           FilledButton(onPressed: _busy ? null : _save, child: const Text('Save')),
+          if (_paypal != null) ...[
+            const SizedBox(height: 28),
+            Text('PayPal payment links', style: display(context, 20)),
+            const SizedBox(height: 10),
+            Panel(
+              padding: EdgeInsets.zero,
+              child: ListTile(
+                leading: Icon(Icons.account_balance_wallet_outlined,
+                    color: _paypal!['paypal_configured'] == true && _paypal!['links_available'] == true ? context.c.advance : context.c.inkFaint),
+                title: Text(
+                  _paypal!['paypal_configured'] != true
+                      ? 'PayPal not set up on this server'
+                      : _paypal!['links_available'] == true
+                          ? 'PayPal (${_paypal!['environment']}) connected'
+                          : 'Not available for ${_paypal!['currency']} books',
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+                subtitle: Text(
+                  'Links work for ${(_paypal!['supported'] as List).join(', ')} books. Keys live on the server only — '
+                  'this phone never signs in to PayPal.',
+                  style: TextStyle(color: context.c.inkFaint),
+                ),
+              ),
+            ),
+          ],
           const SizedBox(height: 28),
           Text('Your data', style: display(context, 20)),
           const SizedBox(height: 10),

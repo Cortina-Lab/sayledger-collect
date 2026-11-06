@@ -4,6 +4,7 @@ import '../api.dart';
 import '../money.dart';
 import '../theme.dart';
 import '../widgets.dart';
+import 'collect_agent.dart';
 import 'customer_detail.dart';
 
 /// Who owes what, and for how long. Ageing is calculated on the server
@@ -19,6 +20,7 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
   Map<String, dynamic>? _data;
   String? _error;
   bool _onlyRemind = false;
+  bool _links = false;
 
   @override
   void initState() {
@@ -33,6 +35,13 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
       if (mounted) setState(() => _data = d);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+      return;
+    }
+    try {
+      final st = await Api.instance.collectStatus();
+      if (mounted) setState(() => _links = st['links_available'] == true && st['paypal_configured'] == true);
+    } on ApiException {
+      // Collect is optional.
     }
   }
 
@@ -104,6 +113,18 @@ class _CollectionsScreenState extends State<CollectionsScreen> {
             Text(_onlyRemind ? 'Show all' : 'Show', style: TextStyle(color: c.accent, fontWeight: FontWeight.w700)),
           ]),
         ),
+      if (_links && total > 0) ...[
+        const SizedBox(height: 12),
+        FilledButton.icon(
+          onPressed: () async {
+            await Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const CollectAgentScreen(initialText: 'Who should I chase today?')));
+            _load();
+          },
+          icon: const Icon(Icons.auto_awesome_outlined),
+          label: const Text('Who to chase today'),
+        ),
+      ],
       const SizedBox(height: 12),
       if (people.isEmpty)
         Padding(

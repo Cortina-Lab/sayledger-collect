@@ -44,6 +44,12 @@ class FakePayPal:
     def verify_webhook(self, headers, raw, webhook_id):
         return self.verify_ok
 
+    def cancel_invoice(self, iid):
+        inv = self.invoices[iid]
+        if inv["payments"]:
+            raise collect.PayPalError("422 cannot cancel a part-paid invoice")  # what the sandbox does
+        inv["status"] = "CANCELLED"
+
 
 @pytest.fixture
 def shop(tmp_path):
@@ -162,3 +168,36 @@ def test_webhook_route_verified_idempotent(tmp_path, monkeypatch):
     assert len(c.get("/inbox", headers=h).json()) == 1
     r = c.post(f"/inbox/{inbox[0]['id']}/confirm", headers=h).json()
     assert r["balance_minor"] == 4250
+
+
+def test_new_link_replaces_unpaid_one(shop):
+    lg, pid, reg, pp = shop
+    c = collect.Collect(lg)
+    old = c.create_request(pp, reg, "b", pid)
+    new = c.create_request(pp, reg, "b", pid)
+    assert new["invoice_id"] != old["invoice_id"]
+    assert pp.invoices[old["invoice_id"]]["status"] == "CANCELLED"
+    assert c.get_request(old["id"])["status"] == "CANCELLED"
+    assert c.sync(pp) == []  # the cancel we made ourselves adds no inbox noise
+
+
+def test_part_paid_link_is_reused_for_the_rest(shop):
+    lg, pid, reg, pp = shop
+    c = collect.Collect(lg)
+    old = c.create_request(pp, reg, "b", pid)
+    pp.pay(old["invoice_id"], 100.00)
+    again = c.create_request(pp, reg, "b", pid, amount_minor=4250)
+    assert again["invoice_id"] == old["invoice_id"] and again["reused"] and again["due_minor"] == 4250
+    # the unseen $100 was picked up before deciding, so it is waiting in the inbox
+    [item] = c.inbox()
+    assert item["amount_minor"] == 10000
+
+
+def test_part_paid_link_left_open_when_amount_differs(shop):
+    lg, pid, reg, pp = shop
+    c = collect.Collect(lg)
+    old = c.create_request(pp, reg, "b", pid)
+    pp.pay(old["invoice_id"], 100.00)
+    new = c.create_request(pp, reg, "b", pid, amount_minor=2000)
+    assert new["invoice_id"] != old["invoice_id"]
+    assert pp.invoices[old["invoice_id"]]["status"] == "PARTIALLY_PAID"  # PayPal won't cancel it; payments still reach us

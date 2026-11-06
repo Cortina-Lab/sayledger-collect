@@ -19,6 +19,8 @@ class CustomerDetailScreen extends StatefulWidget {
 class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
   Map<String, dynamic>? _p;
   String? _error;
+  bool _links = false;
+  List<Map<String, dynamic>> _requests = [];
 
   @override
   void initState() {
@@ -33,6 +35,16 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       if (mounted) setState(() => _p = p);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
+      return;
+    }
+    // PayPal Collect is optional: an older server or an INR book simply hides it.
+    try {
+      final st = await Api.instance.collectStatus();
+      final links = st['links_available'] == true && st['paypal_configured'] == true;
+      final reqs = links ? await Api.instance.paymentRequests(partyId: widget.partyId) : <Map<String, dynamic>>[];
+      if (mounted) setState(() => (_links = links, _requests = reqs));
+    } on ApiException {
+      if (mounted) setState(() => _links = false);
     }
   }
 
@@ -130,8 +142,9 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
       isScrollControlled: true,
       backgroundColor: context.c.card,
       shape: const RoundedRectangleBorder(borderRadius: BorderRadius.vertical(top: Radius.circular(26))),
-      builder: (_) => _ReminderSheet(party: _p!),
+      builder: (_) => _ReminderSheet(party: _p!, linksAvailable: _links),
     );
+    _load();
   }
 
   @override
@@ -182,6 +195,12 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
                         ),
                       ),
                     ]),
+                    if (_requests.isNotEmpty) ...[
+                      const SizedBox(height: 24),
+                      Text('PayPal payment links', style: display(context, 22)),
+                      const SizedBox(height: 8),
+                      for (final r in _requests) _requestTile(r),
+                    ],
                     const SizedBox(height: 24),
                     Text('History', style: display(context, 22)),
                     const SizedBox(height: 8),
@@ -198,13 +217,51 @@ class _CustomerDetailScreenState extends State<CustomerDetailScreen> {
     );
   }
 
+  Widget _requestTile(Map<String, dynamic> r) {
+    final c = context.c;
+    final cur = r['currency'] as String;
+    final amount = r['amount_minor'] as int;
+    final paid = r['paid_seen'] as int;
+    final (String label, Color tone) = switch (r['status'] as String) {
+      'PAID' || 'MARKED_AS_PAID' => ('Paid', c.advance),
+      'PARTIALLY_PAID' || 'MARKED_AS_PARTIALLY_PAID' => ('Part paid', c.doubt),
+      'CANCELLED' => ('Cancelled', c.inkFaint),
+      'REFUNDED' || 'PARTIALLY_REFUNDED' => ('Refunded', c.doubt),
+      _ => ('Sent', c.accent),
+    };
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 8),
+      child: Panel(
+        padding: const EdgeInsets.fromLTRB(16, 12, 12, 12),
+        child: Row(children: [
+          Icon(Icons.account_balance_wallet_outlined, color: c.inkSoft, size: 20),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(formatMoney(amount, cur), style: const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+              Text([if (paid > 0) '${formatMoney(paid, cur)} received', whenLabel(r['created_at'] as String)].join(' · '),
+                  style: TextStyle(color: c.inkFaint, fontSize: 13)),
+            ]),
+          ),
+          TagChip(label, bg: c.paper, fg: tone),
+          IconButton(
+            tooltip: 'Share link again',
+            icon: Icon(Icons.share_outlined, color: c.inkSoft, size: 20),
+            onPressed: () => SharePlus.instance.share(ShareParams(text: r['link_url'] as String)),
+          ),
+        ]),
+      ),
+    );
+  }
+
   Color _tone(int b) => b > 0 ? context.c.owes : b < 0 ? context.c.advance : context.c.inkSoft;
   String _label(int b) => b > 0 ? 'Owes you' : b < 0 ? 'Paid in advance' : 'All settled';
 }
 
 class _ReminderSheet extends StatefulWidget {
-  const _ReminderSheet({required this.party});
+  const _ReminderSheet({required this.party, this.linksAvailable = false});
   final Map<String, dynamic> party;
+  final bool linksAvailable;
 
   @override
   State<_ReminderSheet> createState() => _ReminderSheetState();
@@ -216,10 +273,38 @@ class _ReminderSheetState extends State<_ReminderSheet> {
   final _text = TextEditingController();
   bool _busy = false;
   bool? _aiWritten;
+  late bool _withLink = widget.linksAvailable;
+  late final _amount = TextEditingController(text: majorText(widget.party['balance_minor'] as int, widget.party['currency'] as String));
+  String? _linkUrl;
+
+  int get _balance => widget.party['balance_minor'] as int;
+
+  /// Amount typed by the shopkeeper, in minor units; null if invalid. Can only go down from the balance.
+  int? _amountMinor() {
+    final minor = parseMinor(_amount.text, widget.party['currency'] as String);
+    return minor == null || minor > _balance ? null : minor;
+  }
 
   Future<void> _draft() async {
+    int? amount;
+    if (_withLink) {
+      amount = _amountMinor();
+      if (amount == null) {
+        showSnack(context, 'Enter an amount up to ${formatMoney(_balance, widget.party['currency'] as String)}.');
+        return;
+      }
+    }
     setState(() => _busy = true);
     try {
+      if (_withLink) {
+        final s = (await Api.instance.collectSend([
+          {'party_id': widget.party['id'], 'amount_minor': amount, 'language': _lang},
+        ]))
+            .first;
+        _text.text = s['message'] as String;
+        if (mounted) setState(() => (_aiWritten = s['used_model'] as bool?, _linkUrl = (s['request'] as Map)['link_url'] as String));
+        return;
+      }
       final r = await Api.instance.reminder(widget.party['id'] as int, _lang);
       _text.text = r['text'] as String;
       if (mounted) setState(() => _aiWritten = r['ai_written'] as bool?);
@@ -248,13 +333,41 @@ class _ReminderSheetState extends State<_ReminderSheet> {
             items: [for (final l in langs) DropdownMenuItem(value: l, child: Text(l))],
             onChanged: (v) => setState(() => _lang = v ?? _lang),
           ),
+          if (widget.linksAvailable) ...[
+            const SizedBox(height: 4),
+            if (_linkUrl != null)
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: Icon(Icons.check_circle_outline_rounded, color: c.advance),
+                title: const Text('PayPal payment link added', style: TextStyle(fontWeight: FontWeight.w600)),
+                subtitle: Text('When ${widget.party['name']} pays, it shows up in your Payment inbox.',
+                    style: TextStyle(color: c.inkFaint)),
+              )
+            else
+            SwitchListTile(
+              contentPadding: EdgeInsets.zero,
+              value: _withLink,
+              activeThumbColor: c.accent,
+              title: const Text('Add PayPal payment link', style: TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text('Customer pays from the link. You confirm it in your Payment inbox.', style: TextStyle(color: c.inkFaint)),
+              onChanged: _linkUrl != null ? null : (v) => setState(() => _withLink = v),
+            ),
+            if (_withLink && _linkUrl == null)
+              TextField(
+                controller: _amount,
+                enabled: _linkUrl == null,
+                keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                decoration: InputDecoration(labelText: 'Link amount (${widget.party['currency']}) — up to the balance'),
+              ),
+          ],
           const SizedBox(height: 12),
+          if (_linkUrl == null)
           FilledButton.icon(
             onPressed: _busy ? null : _draft,
             icon: _busy
                 ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2.4, color: Colors.white))
                 : const Icon(Icons.auto_awesome_outlined),
-            label: Text(_text.text.isEmpty ? 'Write draft' : 'Write again'),
+            label: Text(_withLink ? 'Create link & write message' : _text.text.isEmpty ? 'Write draft' : 'Write again'),
           ),
           if (_text.text.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -263,7 +376,7 @@ class _ReminderSheetState extends State<_ReminderSheet> {
             Text(
               _aiWritten == false
                   ? 'Standard message used. The amount is taken from your book.'
-                  : 'Written by AI. The amount is inserted from your book, never typed by AI.',
+                  : 'Written by AI. The amount${_linkUrl != null ? ' and PayPal link are' : ' is'} inserted from your book, never typed by AI.',
               style: TextStyle(color: c.inkFaint, fontSize: 12.5),
             ),
             const SizedBox(height: 12),

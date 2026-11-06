@@ -22,6 +22,7 @@ from .ledger import Ledger, LedgerError
 from .paypal_client import PayPalError, payer_link, to_minor
 
 SUPPORTED = ("USD", "EUR", "GBP", "CAD", "AUD")  # currencies we offer links for (PayPal Invoicing)
+OPEN_STATUSES = ("UNPAID", "SENT", "PARTIALLY_PAID", "MARKED_AS_PARTIALLY_PAID", "SCHEDULED")
 HANDLED_EVENTS = ("INVOICING.INVOICE.PAID", "INVOICING.INVOICE.REFUNDED", "INVOICING.INVOICE.CANCELLED",
                   "INVOICING.INVOICE.UPDATED")
 
@@ -138,6 +139,14 @@ class Collect:
             raise CollectError("Amount must be a positive whole number of minor units")
         if amount > balance:
             raise CollectError("The link can't be for more than the customer owes.")
+        # One live link per customer, so nobody pays the same debt twice.
+        stale = []
+        for old in self._open_requests(paypal, party_id):
+            if old["paid_seen"] > 0:
+                if old["amount_minor"] - old["paid_seen"] == amount:
+                    return {**old, "reused": True, "due_minor": amount}  # part-paid link already asks for exactly this
+                continue  # PayPal can't cancel a part-paid invoice (422); it stays open
+            stale.append(old)
         shop = self.ledger.get_shop() or {"name": "Shop"}
         try:
             inv = paypal.create_invoice(amount_minor=amount, currency=currency, customer_name=party["name"],
@@ -155,7 +164,33 @@ class Collect:
                 " VALUES (?, ?, ?, ?, ?, ?, ?)", (party_id, amount, currency, inv["id"], link, "UNPAID", _now()))
             rid = cur.lastrowid
         registry.link(inv["id"], book_id)
+        for old in stale:
+            self._cancel(paypal, old)
         return self.get_request(rid)
+
+    def _open_requests(self, paypal, party_id: int) -> list[dict]:
+        """This customer's links that can still take money, refreshed from PayPal first so no payment is missed."""
+        out = []
+        for req in self.requests(party_id):
+            if req["status"] not in OPEN_STATUSES:
+                continue
+            try:
+                self.reconcile(paypal.get_invoice(req["invoice_id"]))
+            except PayPalError:
+                pass  # keep what we know
+            req = self.get_request(req["id"])
+            if req["status"] in OPEN_STATUSES:
+                out.append(req)
+        return out
+
+    def _cancel(self, paypal, req: dict) -> None:
+        """Replace an unpaid link. Marked CANCELLED locally first, so the later webhook/sync adds no inbox noise."""
+        try:
+            paypal.cancel_invoice(req["invoice_id"])
+        except PayPalError:
+            return  # still open at PayPal; a payment on it would still reach the inbox
+        with closing(self._connect()) as con, con:
+            con.execute("UPDATE payment_request SET status = 'CANCELLED', updated_at = ? WHERE id = ?", (_now(), req["id"]))
 
     def get_request(self, request_id: int) -> dict | None:
         with closing(self._connect()) as con:

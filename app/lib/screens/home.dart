@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -9,10 +10,12 @@ import '../recorder.dart';
 import '../theme.dart';
 import '../widgets.dart';
 import 'ask.dart';
+import 'collect_agent.dart';
 import 'collections.dart';
 import 'confirm.dart';
 import 'customers.dart';
 import 'daybook.dart';
+import 'inbox.dart';
 import 'onboarding.dart';
 import 'reports.dart';
 import 'settings.dart';
@@ -29,11 +32,35 @@ class _HomeScreenState extends State<HomeScreen> {
   Map<String, dynamic>? _shop;
   Map<String, dynamic>? _summary;
   String? _error;
+  bool _links = false;
+  int _inbox = 0;
+  Timer? _poll;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Foreground polling is enough for the demo: new PayPal payments show up within 30 s.
+    _poll = Timer.periodic(const Duration(seconds: 30), (_) => _checkInbox());
+  }
+
+  @override
+  void dispose() {
+    _poll?.cancel();
+    super.dispose();
+  }
+
+  /// PayPal Collect is optional: INR books or an older server simply hide it.
+  Future<void> _checkInbox() async {
+    if (!mounted || !Api.instance.hasBook) return;
+    try {
+      final st = await Api.instance.collectStatus();
+      final links = st['links_available'] == true && st['paypal_configured'] == true;
+      final n = links ? (await Api.instance.inbox()).length : 0;
+      if (mounted && (links != _links || n != _inbox)) setState(() => (_links = links, _inbox = n));
+    } on ApiException {
+      // keep the last known state
+    }
   }
 
   Future<void> _load() async {
@@ -42,6 +69,7 @@ class _HomeScreenState extends State<HomeScreen> {
       final shop = await Api.instance.shop();
       final summary = await Api.instance.summary();
       if (mounted) setState(() => (_shop = shop, _summary = summary));
+      _checkInbox();
     } on UnlinkedException {
       await Api.instance.forgetBook();
       if (Api.instance.hasBook) return _load();
@@ -203,6 +231,23 @@ class _HomeScreenState extends State<HomeScreen> {
                           ),
                         ]),
                       ),
+                      if (_inbox > 0) ...[
+                        const SizedBox(height: 12),
+                        Panel(
+                          color: c.accentSoft,
+                          padding: const EdgeInsets.all(14),
+                          onTap: () => _open(const InboxScreen()),
+                          child: Row(children: [
+                            Icon(Icons.account_balance_wallet_outlined, color: c.accent),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text('$_inbox new PayPal payment${_inbox == 1 ? '' : 's'} to confirm',
+                                  style: TextStyle(color: c.ink, fontWeight: FontWeight.w600, fontSize: 15.5)),
+                            ),
+                            Text('Review', style: TextStyle(color: c.accent, fontWeight: FontWeight.w700)),
+                          ]),
+                        ),
+                      ],
                       const SizedBox(height: 16),
                       Panel(
                         onTap: () => _open(const DayBookScreen()),
@@ -241,6 +286,9 @@ class _HomeScreenState extends State<HomeScreen> {
                       ),
                       const SizedBox(height: 14),
                       _grid([
+                        if (_links) (Icons.send_to_mobile_outlined, 'Get paid', () => _open(const CollectAgentScreen())),
+                        if (_links)
+                          (Icons.account_balance_wallet_outlined, _inbox > 0 ? 'Payment inbox · $_inbox' : 'Payment inbox', () => _open(const InboxScreen())),
                         (Icons.people_outline_rounded, 'Customers', () => _open(const CustomersScreen())),
                         (Icons.savings_outlined, 'Collections', () => _open(const CollectionsScreen())),
                         (Icons.chat_bubble_outline_rounded, 'Ask', () => _open(const AskScreen())),

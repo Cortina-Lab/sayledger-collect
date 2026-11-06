@@ -525,7 +525,8 @@ def collect_send(body: SendIn, book: Book = Depends(ai_quota)) -> dict:
         req = col.create_request(paypal(), registry, book.id, card.party_id, card.amount_minor)
         party = lg.get_party(card.party_id)["name"]
         lang = card.language if card.language in collect_agent.LANGS else "English"
-        text, used_model = collect_agent.link_message(party, shop, req["amount_minor"], req["currency"], lang,
-                                                      req["link_url"], req["amount_minor"] < lg.party_balance(card.party_id))
+        due = req.get("due_minor", req["amount_minor"])  # a reused part-paid link asks only for what's left
+        text, used_model = collect_agent.link_message(party, shop, due, req["currency"], lang,
+                                                      req["link_url"], due < lg.party_balance(card.party_id))
         out.append({"request": req, "party": party, "language": lang, "message": text, "used_model": used_model})
     return {"sent": out}

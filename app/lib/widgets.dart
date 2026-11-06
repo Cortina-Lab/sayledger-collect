@@ -108,6 +108,7 @@ void showSnack(BuildContext context, String text) =>
 IconData sourceIcon(String source) => switch (source) {
       'voice' => Icons.mic_none_rounded,
       'ledger_photo' => Icons.photo_camera_outlined,
+      'paypal' => Icons.account_balance_wallet_outlined,
       _ => Icons.edit_outlined,
     };
 

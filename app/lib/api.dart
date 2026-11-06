@@ -200,6 +200,25 @@ class Api {
       _map(await _multipart('/stock-count', {'image': ('shelf.${mime.split('/').last}', image, mime)}, {'item': item}));
   Future<Map<String, dynamic>> reminder(int partyId, String language) async =>
       _map(await _send('POST', '/reminder-draft', {'party_id': partyId, 'language': language}));
+
+  // ── Collect (PayPal) — the phone never holds a PayPal secret ──
+  static List<Map<String, dynamic>> _list(dynamic v) => (v as List).map((e) => _map(e)).toList();
+  Future<Map<String, dynamic>> collectStatus() async => _map(await _send('GET', '/collect/status'));
+  Future<List<Map<String, dynamic>>> paymentRequests({int? partyId}) async =>
+      _list(await _send('GET', '/collect/requests${_q({'party_id': partyId})}'));
+  Future<int> collectSync() async => (_map(await _send('POST', '/collect/sync'))['new_items'] as int);
+  Future<List<Map<String, dynamic>>> inbox({String status = 'open'}) async =>
+      _list(await _send('GET', '/inbox${_q({'status': status})}'));
+  Future<Map<String, dynamic>> inboxConfirm(int id, {int? partyId}) async =>
+      _map(await _send('POST', '/inbox/$id/confirm', partyId == null ? null : {'party_id': partyId}));
+  Future<void> inboxDismiss(int id) => _send('POST', '/inbox/$id/dismiss');
+  Future<Map<String, dynamic>> collectPlan(String text) async => _map(await _send('POST', '/collect/plan', {'text': text}));
+  Future<Map<String, dynamic>> collectPlanVoice(Uint8List wav) async =>
+      _map(await _multipart('/collect/plan-voice', {'audio': ('command.wav', wav, 'audio/wav')}));
+
+  /// The shopkeeper confirmed these cards: the server creates the PayPal links and writes the messages.
+  Future<List<Map<String, dynamic>>> collectSend(List<Map<String, dynamic>> cards) async =>
+      _list(_map(await _send('POST', '/collect/send', {'cards': cards}))['sent']);
 }
 
 class BookRef {
