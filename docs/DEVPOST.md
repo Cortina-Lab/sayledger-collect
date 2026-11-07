@@ -1,4 +1,4 @@
-# Devpost submission text — SayLedger Collect (draft for Raj to paste)
+# Devpost submission text — SayLedger Collect
 
 **Project name:** SayLedger Collect by Cortina
 **Tagline (≤ 60 chars):** Say it. Send it. Get paid — tabs that collect themselves.
@@ -10,8 +10,8 @@
 ## Inspiration
 Around 150,000 corner stores, bodegas, delis and food trucks in the US — and millions of small shops
 worldwide — still run customer tabs in a paper notebook. We had already built SayLedger, a voice
-credit book: say "Maria took $40 of groceries on credit" and it's in the book. But shopkeepers told
-us the hard part isn't writing the credit down. It's getting paid: noticing who's overdue, asking
+credit book: say "Maria took $40 of groceries on credit" and it's in the book. But writing the
+credit down is only half the job. The hard part is getting paid: noticing who's overdue, asking
 politely, and remembering to cross it off when the money arrives somewhere else.
 
 ## What it does

@@ -1,8 +1,7 @@
 # SayLedger Collect — Demo video script (< 3:00, English, public on YouTube)
 
-**Format:** phone screen recording (scrcpy, emulator `council_test -gpu host` or real phone) +
-English voiceover (Raj, or Kokoro `am_michael` like the Meta video) + burned-in captions.
-Build with a copy of `~/meta_hackathon/demo/build_video.py` (don't edit the Meta repo before Nov 9).
+**Format:** phone screen recording (scrcpy, Android emulator or a real phone) +
+English voiceover + burned-in captions.
 **Pace:** ~140 words/min. Voiceover ≈ 330 words ≈ 2:25; screen waits fill to ~2:50.
 **Rules:** PayPal sandbox only · invented data ("Harbor Market", USD) · no third-party music or
 logos except PayPal's name where we describe the integration · say what was built during the event.
@@ -45,7 +44,7 @@ shares it on WhatsApp or SMS. The AI never sends anything by itself."
 
 ## 1:10 – 1:40 · The customer pays
 📱 Open the link in a browser → PayPal sandbox invoice page → log in with the sandbox **Personal**
-buyer (Raj does this — not Claude) → pay **$200 of $504** (partial) → "Payment successful".
+buyer (a person logs in — never automated) → pay **$200 of $504** (partial) → "Payment successful".
 
 🎙 "Maria opens the link. She doesn't need our app — just PayPal. She can pay part of it today:
 two hundred dollars of five hundred and four."
@@ -89,6 +88,6 @@ this hackathon, in the PayPal sandbox, with invented demo data."
 ### Shot checklist (before recording)
 - [ ] Backend reachable from the phone (hosted URL, or `adb reverse tcp:8078 tcp:8078`)
 - [ ] Fresh "Harbor Market" USD book seeded: `.venv/bin/python -m scripts.seed_demo data/books/<id>.db --currency USD`
-- [ ] Sandbox **Personal (US)** buyer account created by Raj (developer.paypal.com → Sandbox accounts)
+- [ ] Sandbox **Personal (US)** buyer account created (developer.paypal.com → Sandbox accounts)
 - [ ] Webhook registered (needs public HTTPS) — otherwise show **Check PayPal now** and change the 1:40 line to "…or the shopkeeper taps Check PayPal now"
 - [ ] Notifications muted, emulator clock/battery clean, no real names on screen
