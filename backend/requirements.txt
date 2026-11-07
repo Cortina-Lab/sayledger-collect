@@ -7,3 +7,4 @@ python-multipart==0.0.20
 Pillow==11.2.1
 numpy==2.2.5
 pytest==8.3.5
+a2wsgi==1.10.8
