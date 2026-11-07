@@ -113,6 +113,10 @@ backend needs a public HTTPS URL; add a webhook for `INVOICING.INVOICE.*` pointi
 `https://<your-host>/paypal/webhook` and put its id in `PAYPAL_WEBHOOK_ID`. Without a webhook,
 use **Check PayPal now** in the Payment inbox.
 
+**Hosting:** `render.yaml` is a Render Blueprint for the backend (Render → New → Blueprint; set the
+secret env vars in the dashboard). It mounts a small disk for the book files; on a plan without a disk
+the books are lost on every restart.
+
 Demo data: create a USD book in the app, then
 `.venv/bin/python -m scripts.seed_demo data/books/<id>.db --currency USD` (invented customers).
 
