@@ -40,6 +40,18 @@ politely, and remembering to cross it off when the money arrives somewhere else.
   `ledger.py`). **App:** Flutter (Android). The phone never holds a PayPal or AI key.
 - 61 automated tests (fake PayPal + fake model, no network).
 
+## Tools used (AI and PayPal)
+- **Meta `muse-spark-1.3`** — the Collect agent. It calls read-only ledger tools (who owes, how much,
+  how old, last reminder) in a loop of at most 6 steps and returns reminder cards. Our code checks
+  every card against the ledger before it is shown.
+- **Meta `muse-voice-transcribe-1.0`** — turns a spoken command ("Who should I chase today?", in English
+  or Spanish) into text for the agent.
+- **Meta `muse-spark-1.3` (writing)** — writes the friendly reminder message with an `{AMOUNT}`
+  placeholder; our code puts in the amount and the PayPal link.
+- **PayPal Invoicing v2 (sandbox)** — creates the payment link, takes partial payments, and records
+  cash payments. **PayPal Webhooks + verify-webhook-signature** — tell us when a customer pays.
+- Code was written with AI coding assistance (Claude Code).
+
 ## Trust by design
 The AI never moves money and never writes to the book. Amounts always come from the ledger or from
 PayPal's re-fetched invoice — never from AI text or the webhook body. The shopkeeper ticks cards before
