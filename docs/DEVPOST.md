@@ -58,6 +58,12 @@ The full loop works end to end in the PayPal sandbox: agent plan → three real 
 partial payment → inbox card → Confirm → balance $304 with ageing updated → the next reminder reuses
 the link for the remainder.
 
+**By the numbers (PayPal sandbox, Nov 4–10 2026):**
+- 61 backend tests pass (ledger maths, webhook verification, duplicate events, partial/over-payment, refunds).
+- 4 real sandbox invoices created and checked against PayPal: full flow $504 → $200 part payment → $304 left.
+- 5 live agent commands tested, including one in Spanish and one off-topic request the agent refused.
+- The agent never writes an amount: every amount on a card is checked against the ledger before it is shown.
+
 ## What we learned
 Payments UX is mostly about reconciliation and trust, not the "pay" button. Small details — part
 payments, refunds, the wrong customer paying — decide whether a shopkeeper can rely on it.
