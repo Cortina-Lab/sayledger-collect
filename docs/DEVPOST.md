@@ -77,3 +77,7 @@ SayLedger (the voice credit book) was built Oct 26 – Nov 4 2026 for a separate
 Everything PayPal and agentic — Invoicing, webhooks, Payment inbox, Collect agent, Get paid screen,
 link history — was built during this hackathon (Nov 4 – Nov 12 2026). PayPal sandbox only; all demo
 names and amounts are invented. Code was written with AI coding assistance.
+In the video, a person paid $200 of $504 as a sandbox buyer (PayPal shows PARTIALLY_PAID, $304 due).
+The backend is not hosted publicly, so no webhook is registered: the inbox card in the demo comes from
+**Check PayPal now** (sync), which uses the same re-fetch and confirm path. Webhook verification is
+implemented and covered by tests. The app screens come from an earlier run of the same flow.
