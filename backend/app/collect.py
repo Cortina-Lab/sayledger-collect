@@ -100,14 +100,21 @@ class Registry:
 
     def record_event(self, event_id: str, etype: str, resource_id: str | None, verified: bool,
                      payload: str) -> bool:
-        """True if this event is new (first time we see this event_id)."""
+        """True if this event should be acted on: first time we see this event_id, or the first
+        verified copy of an event we only had unverified (e.g. it arrived before the webhook id
+        was configured, and PayPal retried or resent it)."""
         with self._lock, closing(self._connect()) as con, con:
             try:
                 con.execute("INSERT INTO paypal_event VALUES (?, ?, ?, ?, ?, ?)",
                             (event_id, etype, resource_id, int(verified), payload[:200_000], _now()))
                 return True
             except sqlite3.IntegrityError:
-                return False
+                if not verified:
+                    return False
+                cur = con.execute("UPDATE paypal_event SET verified = 1, payload = ?, received_at = ? "
+                                  "WHERE event_id = ? AND verified = 0",
+                                  (payload[:200_000], _now(), event_id))
+                return cur.rowcount == 1
 
 
 class Collect:

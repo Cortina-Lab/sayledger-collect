@@ -3,7 +3,7 @@
 **Project name:** SayLedger Collect by Cortina
 **Tagline (≤ 60 chars):** Say it. Send it. Get paid — tabs that collect themselves.
 **Built with:** paypal-invoicing-api, paypal-webhooks, meta-muse-spark, python, fastapi, sqlite, flutter, dart, android
-**Links:** GitHub repo (public, MIT) · YouTube demo (public) · hosted backend URL (if hosted)
+**Links:** GitHub repo (public, MIT) · YouTube demo (public) · hosted backend https://cortinainfinity.com/sayledger-collect · APK in GitHub Releases
 
 ---
 
@@ -38,7 +38,7 @@ politely, and remembering to cross it off when the money arrives somewhere else.
   placeholder that our code fills.
 - **Backend:** Python FastAPI + SQLite (one private book per install, integer minor units, all maths in
   `ledger.py`). **App:** Flutter (Android). The phone never holds a PayPal or AI key.
-- 61 automated tests (fake PayPal + fake model, no network).
+- 62 automated tests (fake PayPal + fake model, no network).
 
 ## Tools used (AI and PayPal)
 - **Meta `muse-spark-1.3`** — the Collect agent. It calls read-only ledger tools (who owes, how much,
@@ -71,7 +71,7 @@ partial payment → inbox card → Confirm → balance $304 with ageing updated 
 the link for the remainder.
 
 **By the numbers (PayPal sandbox, Nov 4–10 2026):**
-- 61 backend tests pass (ledger maths, webhook verification, duplicate events, partial/over-payment, refunds).
+- 62 backend tests pass (ledger maths, webhook verification, duplicate events, partial/over-payment, refunds).
 - 4 real sandbox invoices created and checked against PayPal: full flow $504 → $200 part payment → $304 left.
 - 5 live agent commands tested, including one in Spanish and one off-topic request the agent refused.
 - The agent never writes an amount: every amount on a card is checked against the ledger before it is shown.
@@ -90,6 +90,7 @@ Everything PayPal and agentic — Invoicing, webhooks, Payment inbox, Collect ag
 link history — was built during this hackathon (Nov 4 – Nov 12 2026). PayPal sandbox only; all demo
 names and amounts are invented. Code was written with AI coding assistance.
 In the video, a person paid $200 of $504 as a sandbox buyer (PayPal shows PARTIALLY_PAID, $304 due).
-The backend is not hosted publicly, so no webhook is registered: the inbox card in the demo comes from
-**Check PayPal now** (sync), which uses the same re-fetch and confirm path. Webhook verification is
-implemented and covered by tests. The app screens come from an earlier run of the same flow.
+Since Nov 10 the backend is hosted (https://cortinainfinity.com/sayledger-collect) and the PayPal
+webhook is registered there: a sandbox payment produced a verified `INVOICING.INVOICE.PAID` event and an
+inbox card in about 30 seconds. The first demo video was recorded before that, so its inbox card came from
+**Check PayPal now** (sync), which uses the same re-fetch and confirm path.

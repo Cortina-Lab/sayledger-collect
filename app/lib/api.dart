@@ -12,8 +12,8 @@ class Api {
   static final Api instance = Api._();
 
   /// Hosted demo backend. For local development use the "Server" option on the
-  /// first screen (e.g. http://127.0.0.1:8077 with `adb reverse tcp:8077 tcp:8077`).
-  static const defaultBase = 'https://cortinainfinity.com/sayledger';
+  /// first screen (e.g. http://127.0.0.1:8078 with `adb reverse tcp:8078 tcp:8078`).
+  static const defaultBase = 'https://cortinainfinity.com/sayledger-collect';
   String base = defaultBase;
   String? token;
 

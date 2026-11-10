@@ -201,3 +201,12 @@ def test_part_paid_link_left_open_when_amount_differs(shop):
     new = c.create_request(pp, reg, "b", pid, amount_minor=2000)
     assert new["invoice_id"] != old["invoice_id"]
     assert pp.invoices[old["invoice_id"]]["status"] == "PARTIALLY_PAID"  # PayPal won't cancel it; payments still reach us
+
+
+def test_event_unverified_then_verified_is_acted_on_once(tmp_path):
+    from app.collect import Registry
+    reg = Registry(tmp_path)
+    assert reg.record_event("WH-1", "INVOICING.INVOICE.PAID", "INV-1", False, "{}") is True
+    assert reg.record_event("WH-1", "INVOICING.INVOICE.PAID", "INV-1", False, "{}") is False
+    assert reg.record_event("WH-1", "INVOICING.INVOICE.PAID", "INV-1", True, "{}") is True
+    assert reg.record_event("WH-1", "INVOICING.INVOICE.PAID", "INV-1", True, "{}") is False

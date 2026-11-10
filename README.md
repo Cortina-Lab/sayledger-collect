@@ -22,6 +22,16 @@ shopkeeper's **Payment inbox**. One tap on **Confirm** and the book is up to dat
 Built for the **PayPal AI Hackathon** (Nov 2026) on top of SayLedger, our voice credit book
 (see [What is new for this hackathon](#what-is-new-for-this-hackathon)).
 
+### Try it (no setup)
+- **Android APK:** [Releases → v1.0.0](https://github.com/Cortina-Lab/sayledger-collect/releases/tag/v1.0.0)
+  (debug-signed). It talks to our hosted sandbox backend by default.
+- **Hosted backend (PayPal sandbox):** `https://cortinainfinity.com/sayledger-collect` —
+  `/health` returns `{"ok":true}`. The PayPal webhook is registered on this host and verified live.
+- In the app: create a shop with currency **USD**, add a few credits, then open **Get paid** and ask
+  *"Who should I chase today?"*. Open a payment link in a browser and pay with a sandbox **Personal**
+  account to see the Payment inbox card arrive.
+- Everything is PayPal **sandbox**: no real money. Please use invented names only.
+
 ---
 
 ## Screenshots
@@ -106,7 +116,7 @@ cd backend
 python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
 cp .env.example .env   # META_API_KEY, PAYPAL_CLIENT_ID, PAYPAL_CLIENT_SECRET (sandbox), PAYPAL_WEBHOOK_ID
 .venv/bin/uvicorn app.main:app --port 8078
-.venv/bin/python -m pytest -q   # 61 tests, no network (fake PayPal + fake model)
+.venv/bin/python -m pytest -q   # 62 tests, no network (fake PayPal + fake model)
 ```
 Sandbox keys: developer.paypal.com → Apps & Credentials → **Sandbox** → create an app. For webhooks the
 backend needs a public HTTPS URL; add a webhook for `INVOICING.INVOICE.*` pointing at
@@ -145,7 +155,8 @@ To pay a link as a customer, open it in a browser and log in with a sandbox **Pe
 | Part payment $200 of $504 → Check PayPal now → inbox card → Confirm → balance $304, ageing updated | ✅ live sandbox (payment recorded through the record-payment API) |
 | New link for a part-paid customer reuses the open link and asks for the remainder | ✅ live sandbox |
 | Spanish reminder message; agent commands in English and Spanish; off-topic refusal | ✅ live model |
-| Webhook signature verification, duplicate events, unverified events ignored | ✅ unit tests; live delivery needs the public host |
+| Webhook signature verification, duplicate events, unverified events ignored | ✅ unit tests |
+| Live webhook on the hosted backend: payment → PayPal `INVOICING.INVOICE.PAID` → signature verified → invoice re-fetched → inbox card | ✅ live sandbox (Nov 10, card in ~30 s) |
 | A real sandbox buyer paying through the PayPal page | ⏳ to be shown in the demo video |
 
 ## What is new for this hackathon
